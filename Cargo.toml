@@ -6,6 +6,8 @@ edition = "2024"
 [dependencies]
 rusty_link = "0.4"
 rosc = "0.10"
+coremidi = "0.8"
+mach2 = "0.4"
 
 [profile.release]
 opt-level = 3
