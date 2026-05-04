@@ -5,10 +5,14 @@
 // 1. Link timeline tracking. Joins an Ableton Link session via rusty_link
 //    and is the rig's authoritative beat clock.
 //
-// 2. CV/Gate hardware triggers. On each integer beat, fires
-//    /cv/trig/at <bus> <value> <duration_ms> <delay_ms> to cv-router on
-//    UDP 127.0.0.1:57120. cv-router fires the gate on the matching audio
-//    frame inside its callback, eliminating audio-buffer jitter.
+// 2. (Opt-in, --debug-beat.) Per-beat CV gate marker for calibration
+//    runs. On each integer beat, fires /cv/trig/at <bus> <value>
+//    <duration_ms> <delay_ms> to cv-router on UDP 127.0.0.1:57120.
+//    Originally Phase 1B test scaffolding for proving Link → cv-router
+//    → ES-9 timing was solid; off by default in normal sessions because
+//    it gates panel jack 1 every beat regardless of any registered
+//    pattern, which gates whatever is patched downstream. Pair with the
+//    matching per-beat stdout log gated behind the same flag.
 //
 // 3. /link/anchor publication. ~10 Hz on UDP 127.0.0.1:57121, carrying
 //    the affine map (unix_micros_at_anchor, beat_at_anchor, tempo,
@@ -36,9 +40,11 @@
 //   /midi/cc/at    ,siiih   port_name(s)  channel(i, 1-16)  cc(i, 0-127)
 //                          value(i, 0-127)  unix_micros_at(h)
 //
-// Usage: link-spike [--test-midi] [bus] [duty]
-//   bus    cpal output bus for the CV gate, default 8 (= ES-9 panel jack 1)
-//   duty   fraction of beat the CV gate is on, default 0.5
+// Usage: link-spike [--debug-beat] [--test-midi] [bus] [duty]
+//   --debug-beat  enable per-beat /cv/trig/at + stdout log (off by default)
+//   --test-midi   enable per-beat MIDI note 62 → "Patterning 3"
+//   bus           OSC bus for the --debug-beat CV gate, default 8 (= ES-9 panel jack 1)
+//   duty          fraction of beat the CV gate is on, default 0.5
 
 use coremidi::{Client, Destination, Destinations, OutputPort, PacketBuffer};
 use mach2::mach_time::{mach_absolute_time, mach_timebase_info, mach_timebase_info_data_t};
@@ -283,16 +289,20 @@ fn main() {
     // ─── CLI parsing — flags first, then positional ───────────────────
     let raw_args: Vec<String> = std::env::args().skip(1).collect();
     let test_midi = raw_args.iter().any(|a| a == "--test-midi");
+    let debug_beat = raw_args.iter().any(|a| a == "--debug-beat");
     let positional: Vec<&String> = raw_args.iter().filter(|a| !a.starts_with("--")).collect();
     let bus: i32 = positional.first().and_then(|s| s.parse().ok()).unwrap_or(8);
     let duty: f32 = positional.get(1).and_then(|s| s.parse().ok()).unwrap_or(0.5);
 
     println!(
-        "link-spike: starting at {} BPM. CV bus {} (duty {:.2}). MIDI dispatch on UDP {}{}",
+        "link-spike: starting at {} BPM. MIDI dispatch on UDP {}{}{}",
         INITIAL_TEMPO,
-        bus,
-        duty,
         MIDI_RX_ADDR,
+        if debug_beat {
+            format!(". --debug-beat enabled (per-beat /cv/trig/at on bus {}, duty {:.2})", bus, duty)
+        } else {
+            String::new()
+        },
         if test_midi { ". --test-midi enabled (per-beat note 62 → Patterning 3)" } else { "" }
     );
 
@@ -432,8 +442,10 @@ fn main() {
                 let bpm = state.tempo();
                 let dur_ms = (60_000.0 / bpm as f32) * duty;
                 let delay_ms = (delay_micros as f64 / 1000.0) as f32;
-                if let Err(e) = send_gate_at(bus, dur_ms, delay_ms) {
-                    eprintln!("OSC send failed: {}", e);
+                if debug_beat {
+                    if let Err(e) = send_gate_at(bus, dur_ms, delay_ms) {
+                        eprintln!("OSC send failed: {}", e);
+                    }
                 }
                 if test_midi {
                     // Translate Link-clock microseconds (= mach time
@@ -453,11 +465,13 @@ fn main() {
                         unix_at,
                     );
                 }
-                let in_bar = next_beat.rem_euclid(QUANTUM as i64) + 1;
-                println!(
-                    "scheduled beat {:>6}  bar-pos {}/{:.0}  bpm {:6.2}  +{:.1}ms (cv-dur {:.1}ms)",
-                    next_beat, in_bar, QUANTUM, bpm, delay_ms, dur_ms
-                );
+                if debug_beat {
+                    let in_bar = next_beat.rem_euclid(QUANTUM as i64) + 1;
+                    println!(
+                        "scheduled beat {:>6}  bar-pos {}/{:.0}  bpm {:6.2}  +{:.1}ms (cv-dur {:.1}ms)",
+                        next_beat, in_bar, QUANTUM, bpm, delay_ms, dur_ms
+                    );
+                }
             }
             last_scheduled_beat = next_beat;
         }
