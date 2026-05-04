@@ -206,9 +206,12 @@ fn osc_type_name(t: &OscType) -> &'static str {
     }
 }
 
-/// Decode a single OSC message into a MidiDispatch call. Bundles are
-/// flattened by the caller before reaching here.
-fn handle_osc_message(msg: &OscMessage, dispatch: &mut MidiDispatch) {
+/// Decode a single OSC message into a MidiDispatch call (or a Link
+/// tempo mutation). Bundles are flattened by the caller before
+/// reaching here. `link` is the AblLink session — passed in so
+/// `/link/set-tempo` can capture/mutate/commit the session state and
+/// have the change propagate to all Link peers.
+fn handle_osc_message(msg: &OscMessage, dispatch: &mut MidiDispatch, link: &AblLink) {
     match msg.addr.as_str() {
         "/midi/note/at" => {
             if msg.args.len() != 6 {
@@ -268,18 +271,46 @@ fn handle_osc_message(msg: &OscMessage, dispatch: &mut MidiDispatch) {
             };
             dispatch.schedule_cc(port, channel, cc, value, unix_us);
         }
+        // /link/set-tempo bpm  — set the Link session tempo, propagating to
+        // all peers (Ableton, modular clocks, purerl-tidal). Single Float
+        // arg in BPM. Either Float or Double accepted to be tolerant of
+        // sender-side encoding differences. Out-of-range BPMs (Link's
+        // documented range is 20..999 inclusive) are clamped to that
+        // range — past about 5 BPM the rusty_link FFI starts rejecting
+        // values silently and we'd rather clamp visibly than swallow.
+        "/link/set-tempo" => {
+            if msg.args.len() != 1 {
+                eprintln!("/link/set-tempo: expected 1 arg, got {}", msg.args.len());
+                return;
+            }
+            let raw_bpm = match &msg.args[0] {
+                OscType::Float(f) => *f as f64,
+                OscType::Double(d) => *d,
+                t => { eprintln!("/link/set-tempo[0] Float/Double expected, got {}", osc_type_name(t)); return; }
+            };
+            let bpm = raw_bpm.clamp(20.0, 999.0);
+            let mut s = SessionState::new();
+            link.capture_app_session_state(&mut s);
+            // `set_tempo` takes the tempo and an at-time in mach
+            // microseconds. Using `link.clock_micros()` makes the
+            // change effective immediately on the local clock; Link's
+            // protocol then propagates to peers.
+            s.set_tempo(bpm, link.clock_micros());
+            link.commit_app_session_state(&s);
+            println!("[link] tempo set to {:.2} bpm", bpm);
+        }
         // Unknown addresses silently ignored — OSC-spec compliant, and
         // keeps stdout clean if other consumers/senders share the bus.
         _ => {}
     }
 }
 
-fn handle_osc_packet(packet: &OscPacket, dispatch: &mut MidiDispatch) {
+fn handle_osc_packet(packet: &OscPacket, dispatch: &mut MidiDispatch, link: &AblLink) {
     match packet {
-        OscPacket::Message(msg) => handle_osc_message(msg, dispatch),
+        OscPacket::Message(msg) => handle_osc_message(msg, dispatch, link),
         OscPacket::Bundle(bundle) => {
             for inner in &bundle.content {
-                handle_osc_packet(inner, dispatch);
+                handle_osc_packet(inner, dispatch, link);
             }
         }
     }
@@ -414,7 +445,7 @@ fn main() {
         loop {
             match midi_rx.recv_from(&mut rx_buf) {
                 Ok((n, _src)) => match decoder::decode_udp(&rx_buf[..n]) {
-                    Ok((_, packet)) => handle_osc_packet(&packet, &mut dispatch),
+                    Ok((_, packet)) => handle_osc_packet(&packet, &mut dispatch, &link),
                     Err(e) => eprintln!("midi-rx: OSC decode failed: {:?}", e),
                 },
                 Err(e) if e.kind() == ErrorKind::WouldBlock => break,
