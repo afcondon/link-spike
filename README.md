@@ -17,7 +17,7 @@ Requires `cv-router` running and listening on UDP `127.0.0.1:57120`.
 ## Sibling repos
 
 - [`cv-router`](../cv-router) — receives OSC, drives the ES-9
-- [`purerl-tidal`](../purescript-ports/purerl-tidal) — TidalCycles port (also Link-aware in future)
+- [`purerl-tidal`](../live-coding/purerl-tidal) — TidalCycles port (also Link-aware in future)
 
 ## License
 
