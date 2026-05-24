@@ -7,8 +7,8 @@
 //
 // 2. (Opt-in, --debug-beat.) Per-beat CV gate marker for calibration
 //    runs. On each integer beat, fires /cv/trig/at <bus> <value>
-//    <duration_ms> <delay_ms> to cv-router on UDP 127.0.0.1:57120.
-//    Originally Phase 1B test scaffolding for proving Link → cv-router
+//    <duration_ms> <delay_ms> to es9-daemon on UDP 127.0.0.1:57120.
+//    Originally Phase 1B test scaffolding for proving Link → es9-daemon
 //    → ES-9 timing was solid; off by default in normal sessions because
 //    it gates panel jack 1 every beat regardless of any registered
 //    pattern, which gates whatever is patched downstream. Pair with the
@@ -59,9 +59,9 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 const INITIAL_TEMPO: f64 = 120.0;
 const QUANTUM: f64 = 4.0;
 const POLL_INTERVAL: Duration = Duration::from_millis(1);
-const CV_ROUTER_ADDR: &str = "127.0.0.1:57120";
+const ES9_DAEMON_ADDR: &str = "127.0.0.1:57120";
 /// Anchor fan-out targets. purerl-tidal listens on 57121 for scheduler
-/// clock RPC; cv-router on 57123 for tempo-relative polyclock/polyeuclid
+/// clock RPC; es9-daemon on 57123 for tempo-relative polyclock/polyeuclid
 /// generator rates. Add more here when new consumers want the anchor
 /// stream — link-spike is fire-and-forget so an unbound listener costs
 /// only the send.
@@ -71,7 +71,7 @@ const ANCHOR_PERIOD: Duration = Duration::from_millis(100);
 const GATE_VALUE: f32 = 0.5;
 
 /// Schedule beats this far ahead in the Link timeline. Should exceed
-/// cv-router's audio buffer (~8 ms) plus OSC RTT (sub-ms over loopback).
+/// es9-daemon's audio buffer (~8 ms) plus OSC RTT (sub-ms over loopback).
 const LOOKAHEAD_MS: f64 = 100.0;
 
 // Test-mode (--test-midi) beat-marker constants — Phase 1B legacy.
@@ -342,7 +342,7 @@ fn main() {
         if test_midi { ". --test-midi enabled (per-beat note 62 → Patterning 3)" } else { "" }
     );
 
-    // ─── Outbound OSC for cv-router and anchor ────────────────────────
+    // ─── Outbound OSC for es9-daemon and anchor ────────────────────────
     let osc_out = UdpSocket::bind("127.0.0.1:0").expect("bind ephemeral UDP socket");
     let send_gate_at = |b: i32, dur_ms: f32, delay_ms: f32| -> std::io::Result<()> {
         let msg = OscPacket::Message(OscMessage {
@@ -355,7 +355,7 @@ fn main() {
             ],
         });
         let packet = encoder::encode(&msg).expect("OSC encode failed");
-        osc_out.send_to(&packet, CV_ROUTER_ADDR).map(|_| ())
+        osc_out.send_to(&packet, ES9_DAEMON_ADDR).map(|_| ())
     };
 
     let send_anchor = |unix_micros: i64, beat: f64, tempo: f64| -> std::io::Result<()> {
@@ -432,7 +432,7 @@ fn main() {
 
     println!(
         "Link enabled. Quantum = {}. CV→{}  Anchor→{:?}  MIDI rx←{}",
-        QUANTUM, CV_ROUTER_ADDR, ANCHOR_TARGETS, MIDI_RX_ADDR
+        QUANTUM, ES9_DAEMON_ADDR, ANCHOR_TARGETS, MIDI_RX_ADDR
     );
     println!("(start something else on the network — Live, ML-2, link_hut — to see peers > 0)");
     println!();
