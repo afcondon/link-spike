@@ -60,7 +60,12 @@ const INITIAL_TEMPO: f64 = 120.0;
 const QUANTUM: f64 = 4.0;
 const POLL_INTERVAL: Duration = Duration::from_millis(1);
 const CV_ROUTER_ADDR: &str = "127.0.0.1:57120";
-const ANCHOR_TARGET: &str = "127.0.0.1:57121";
+/// Anchor fan-out targets. purerl-tidal listens on 57121 for scheduler
+/// clock RPC; cv-router on 57123 for tempo-relative polyclock/polyeuclid
+/// generator rates. Add more here when new consumers want the anchor
+/// stream — link-spike is fire-and-forget so an unbound listener costs
+/// only the send.
+const ANCHOR_TARGETS: &[&str] = &["127.0.0.1:57121", "127.0.0.1:57123"];
 const MIDI_RX_ADDR: &str = "127.0.0.1:57122";
 const ANCHOR_PERIOD: Duration = Duration::from_millis(100);
 const GATE_VALUE: f32 = 0.5;
@@ -364,7 +369,16 @@ fn main() {
             ],
         });
         let packet = encoder::encode(&msg).expect("OSC encode failed");
-        osc_out.send_to(&packet, ANCHOR_TARGET).map(|_| ())
+        let mut last_err: Option<std::io::Error> = None;
+        for target in ANCHOR_TARGETS {
+            if let Err(e) = osc_out.send_to(&packet, target) {
+                last_err = Some(e);
+            }
+        }
+        match last_err {
+            Some(e) => Err(e),
+            None => Ok(()),
+        }
     };
 
     // ─── Inbound OSC for MIDI dispatch (non-blocking) ─────────────────
@@ -417,8 +431,8 @@ fn main() {
     let lookahead_micros = (LOOKAHEAD_MS * 1000.0) as i64;
 
     println!(
-        "Link enabled. Quantum = {}. CV→{}  Anchor→{}  MIDI rx←{}",
-        QUANTUM, CV_ROUTER_ADDR, ANCHOR_TARGET, MIDI_RX_ADDR
+        "Link enabled. Quantum = {}. CV→{}  Anchor→{:?}  MIDI rx←{}",
+        QUANTUM, CV_ROUTER_ADDR, ANCHOR_TARGETS, MIDI_RX_ADDR
     );
     println!("(start something else on the network — Live, ML-2, link_hut — to see peers > 0)");
     println!();
