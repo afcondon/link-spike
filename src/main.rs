@@ -7,7 +7,7 @@
 //
 // 2. (Opt-in, --debug-beat.) Per-beat CV gate marker for calibration
 //    runs. On each integer beat, fires /cv/trig/at <bus> <value>
-//    <duration_ms> <delay_ms> to es9-daemon on UDP 127.0.0.1:57120.
+//    <duration_ms> <delay_ms> to es9-daemon on UDP 127.0.0.1:57130.
 //    Originally Phase 1B test scaffolding for proving Link → es9-daemon
 //    → ES-9 timing was solid; off by default in normal sessions because
 //    it gates panel jack 1 every beat regardless of any registered
@@ -59,7 +59,9 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 const INITIAL_TEMPO: f64 = 120.0;
 const QUANTUM: f64 = 4.0;
 const POLL_INTERVAL: Duration = Duration::from_millis(1);
-const ES9_DAEMON_ADDR: &str = "127.0.0.1:57120";
+// Moved 57120 → 57130 (2026-06-29, purerl-tidal workstream C): es9-daemon's
+// OSC listen port was freed up for a real SuperDirt instance on 57120.
+const ES9_DAEMON_ADDR: &str = "127.0.0.1:57130";
 /// Anchor fan-out targets. purerl-tidal listens on 57121 for scheduler
 /// clock RPC; es9-daemon on 57123 for tempo-relative polyclock/polyeuclid
 /// generator rates. Add more here when new consumers want the anchor
