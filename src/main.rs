@@ -64,10 +64,17 @@ const POLL_INTERVAL: Duration = Duration::from_millis(1);
 const ES9_DAEMON_ADDR: &str = "127.0.0.1:57130";
 /// Anchor fan-out targets. purerl-tidal listens on 57121 for scheduler
 /// clock RPC; es9-daemon on 57123 for tempo-relative polyclock/polyeuclid
-/// generator rates. Add more here when new consumers want the anchor
+/// generator rates; itajara on 57125 for the bar, which is the length a
+/// loop gets rounded to. Add more here when new consumers want the anchor
 /// stream — link-spike is fire-and-forget so an unbound listener costs
 /// only the send.
-const ANCHOR_TARGETS: &[&str] = &["127.0.0.1:57121", "127.0.0.1:57123"];
+///
+/// itajara is the first consumer that will need `beat` and `quantum` and not
+/// only `tempo`: rounding a recording to whole bars needs a bar's length,
+/// which tempo gives, but launching on a boundary needs to know where in the
+/// bar we are. Both of the others deferred that deliberately.
+const ANCHOR_TARGETS: &[&str] =
+    &["127.0.0.1:57121", "127.0.0.1:57123", "127.0.0.1:57125"];
 const MIDI_RX_ADDR: &str = "127.0.0.1:57122";
 const ANCHOR_PERIOD: Duration = Duration::from_millis(100);
 const GATE_VALUE: f32 = 0.5;
