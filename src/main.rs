@@ -73,8 +73,16 @@ const ES9_DAEMON_ADDR: &str = "127.0.0.1:57130";
 /// only `tempo`: rounding a recording to whole bars needs a bar's length,
 /// which tempo gives, but launching on a boundary needs to know where in the
 /// bar we are. Both of the others deferred that deliberately.
+///
+/// continuo listens on 57127, and wants the anchor for a different reason
+/// again: it turns it into an `AudioPlayHead` for the plugins it hosts. A
+/// *sequencer* plugin — Patterning 3 — takes no MIDI and needs a transport, so
+/// without this it loads perfectly and renders silence. Taking its bar from
+/// here rather than from a clock of continuo's own is what makes the drum
+/// machine's bar and the looper's bar the same fact rather than two facts that
+/// agree.
 const ANCHOR_TARGETS: &[&str] =
-    &["127.0.0.1:57121", "127.0.0.1:57123", "127.0.0.1:57125"];
+    &["127.0.0.1:57121", "127.0.0.1:57123", "127.0.0.1:57125", "127.0.0.1:57127"];
 const MIDI_RX_ADDR: &str = "127.0.0.1:57122";
 const ANCHOR_PERIOD: Duration = Duration::from_millis(100);
 const GATE_VALUE: f32 = 0.5;
