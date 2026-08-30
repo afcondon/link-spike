@@ -321,6 +321,56 @@ fn handle_osc_message(msg: &OscMessage, dispatch: &mut MidiDispatch, link: &AblL
             link.commit_app_session_state(&s);
             println!("[link] tempo set to {:.2} bpm", bpm);
         }
+        // /link/play 1|0  — start or stop the session transport.
+        //
+        // **The other half of a Link session, and the half this bridge did not
+        // have.** `enable_start_stop_sync(true)` has been on since the first
+        // commit, so peers that follow transport — Patterning and AUM on the
+        // iPad, Ableton, anything else with Start/Stop Sync ticked — have
+        // always been *listening*. Nothing here ever spoke. This is the verb
+        // that speaks.
+        //
+        // A start is scheduled for the next bar line rather than for now, and
+        // that is the whole of the care in it. `set_is_playing_and_request_-
+        // beat_at_time` would also work and would drag the beat grid to
+        // wherever the foot landed — which is fine when this bridge is the
+        // only thing playing and ruinous when Ableton is already running to a
+        // grid somebody arranged. So the timeline is left exactly as it is and
+        // only the start is placed on it: peers come in on the downbeat, in
+        // phase, and nobody else's bar moves.
+        //
+        // The stop is immediate, because a stop that waits is a stop you press
+        // twice.
+        "/link/play" => {
+            if msg.args.len() != 1 {
+                eprintln!("/link/play: expected 1 arg, got {}", msg.args.len());
+                return;
+            }
+            let on = match &msg.args[0] {
+                OscType::Int(i) => *i != 0,
+                OscType::Float(f) => *f != 0.0,
+                OscType::Bool(b) => *b,
+                t => { eprintln!("/link/play[0] Int/Float/Bool expected, got {}", osc_type_name(t)); return; }
+            };
+            let mut s = SessionState::new();
+            link.capture_app_session_state(&mut s);
+            let now = link.clock_micros();
+            let at = if on {
+                let beat = s.beat_at_time(now, QUANTUM);
+                let next_bar = ((beat / QUANTUM).floor() + 1.0) * QUANTUM;
+                s.time_at_beat(next_bar, QUANTUM)
+            } else {
+                now
+            };
+            s.set_is_playing(on, at);
+            link.commit_app_session_state(&s);
+            println!(
+                "[link] transport {} at {} ({:+.0} ms)",
+                if on { "starts" } else { "stops" },
+                at,
+                (at - now) as f64 / 1000.0
+            );
+        }
         // Unknown addresses silently ignored — OSC-spec compliant, and
         // keeps stdout clean if other consumers/senders share the bus.
         _ => {}
